@@ -102,10 +102,13 @@ def server_loop(t_rounds):
                 os.fsync(f.fileno())
             # attendre open (lecture robuste)
             try:
-                open_pkg = load_json_when_ready(OPEN_FILE, max_wait=60.0)
+                print(f"[server] waiting for open_package.json (round {rr})...")
+                open_pkg = load_json_when_ready(OPEN_FILE, max_wait=120.0)
+                print(f"[server] received open_package.json (round {rr})")
             except TimeoutError:
                 session_ok = False
                 msg = f"timeout waiting open (round {rr})"
+                print(f"[server] ERROR: {msg}")
                 break
 
             ok, detail = verify_open(commits, open_pkg, n)
@@ -117,9 +120,12 @@ def server_loop(t_rounds):
 
             if not ok:
                 session_ok = False
-                msg = f"round {rr} failed: {detail}"
+                msg = f"verification failed at round {rr}: {detail}"
+                print(f"[server] ERROR: {msg}")
                 break
-
+            # (optionnel) on peut logger chaque round
+            if rr % 16 == 0 or rr == 1:
+                print(f"[server] session {session} passed {rr}/{t_rounds} rounds...")
             # (optionnel) on peut logger chaque round
             if rr % 32 == 0 or rr == 1:
                 print(f"[server] session {session} passed {rr}/{t_rounds} rounds...")
