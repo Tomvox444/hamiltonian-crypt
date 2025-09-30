@@ -127,6 +127,9 @@ if __name__ == "__main__":
     out = os.path.expanduser(args.out)
 
     if args.cmd == "gen":
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        
         seed = gen_seed()
         print("Seed (hex):", seed.hex())
         # Store temporarily in a file? Better to encrypt immediately.
