@@ -2,13 +2,16 @@
 """
 zkp_client_mock.py
 Client honnête qui effectue une session et répond T_ROUNDS fois.
+
 Pré-requis:
- - seed_manager.py present (decrypt_seed, derive_permutation)
- - matrix_graph.py present (BitMatrix, commit_matrix_rows)
- - graph_adjmatrix.bin et enroll_manifest.json produits lors de l'enrollement
+ - seed_manager.py (decrypt_seed, derive_permutation)
+ - matrix_graph.py (BitMatrix, commit_matrix_rows)
+ - graph_adjmatrix.bin et enroll_manifest.json produits lors de l'enrôlement
+
 Usage:
     python zkp_client_mock.py --rounds 256
 """
+
 import argparse, json, os, struct, time, hashlib
 from getpass import getpass
 
@@ -24,10 +27,12 @@ GRAPH_BIN    = "graph_adjmatrix.bin"
 SEED_STORE   = "~/.zkp-ham/seed"
 SEED_PUB_FILE= "seed_pub.txt"
 
-# T_ROUNDS default (override via CLI)
+# T_ROUNDS par défaut (surchargé via CLI)
 DEFAULT_T = 256
 
+
 def atomic_write_json(path, obj):
+    """Écriture atomique JSON: .tmp + fsync + replace."""
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(obj, f)
@@ -35,7 +40,9 @@ def atomic_write_json(path, obj):
         os.fsync(f.fileno())
     os.replace(tmp, path)
 
+
 def load_matrix(path):
+    """Charge graph_adjmatrix.bin -> BitMatrix."""
     with open(path, "rb") as f:
         n = struct.unpack(">I", f.read(4))[0]
         row_bytes = (n + 7)//8
@@ -44,54 +51,124 @@ def load_matrix(path):
             bm.rows[i][:] = f.read(row_bytes)
     return bm
 
-def wait_for_file(path, timeout=30.0):
+
+def wait_for_challenge(session_id, round_expected, timeout=120.0, sleep=0.05):
+    """
+    Attend que challenge.json soit disponible, complètement écrit,
+    et qu'il corresponde à la session et au round attendu.
+    Renvoie l'objet challenge (dict) ou None en cas de timeout.
+    """
     t0 = time.time()
-    while not os.path.exists(path):
-        time.sleep(0.05)
+    last_size = -1
+    stable = 0
+
+    while True:
+        if time.time() - t0 > timeout:
+            return None
+
+        if not os.path.exists(CHALL_FILE):
+            time.sleep(sleep)
+            continue
+
+        # attendre que la taille se stabilise pour éviter JSON partiel
+        try:
+            size = os.path.getsize(CHALL_FILE)
+        except OSError:
+            time.sleep(sleep)
+            continue
+
+        if size == last_size:
+            stable += 1
+        else:
+            stable = 0
+        last_size = size
+
+        if stable < 2 or size == 0:
+            time.sleep(sleep)
+            continue
+
+        # tenter de parser
+        try:
+            with open(CHALL_FILE, "r") as f:
+                chal = json.load(f)
+        except json.JSONDecodeError:
+            time.sleep(sleep)
+            continue
+        except Exception:
+            time.sleep(sleep)
+            continue
+
+        # valider session et round
+        c_sess = chal.get("session")
+        c_round = chal.get("round")
+        if c_sess == session_id and (c_round == round_expected or c_round >= round_expected):
+            return chal
+
+        # Sinon, continuer d'attendre
+        time.sleep(sleep)
+
+
+def wait_for_file(path, timeout=60.0, sleep=0.05):
+    """Attendre l'apparition d'un fichier (pour le résultat final)."""
+    t0 = time.time()
+    while True:
+        if os.path.exists(path):
+            # petite stabilisation
+            last = os.path.getsize(path)
+            time.sleep(sleep)
+            if os.path.getsize(path) == last:
+                return True
         if time.time() - t0 > timeout:
             return False
-    return True
+        time.sleep(sleep)
+
 
 def client_session(t_rounds, seed_store, seed_pub_file):
-    # déchiffrer seed_client
+    # 1) déchiffrer seed client
     pw = getpass("Passphrase to decrypt seed: ")
     seed_client = decrypt_seed(pw, os.path.expanduser(seed_store))
-    # lire seed_pub
+
+    # 2) lire seed_pub (hex)
     with open(seed_pub_file, "r") as f:
         seed_pub = bytes.fromhex(f.read().strip())
 
-    # charger la matrice
+    # 3) charger la matrice
     bm = load_matrix(GRAPH_BIN)
     n = bm.n
     print(f"[client] loaded graph n={n}")
 
-    # préparer session id
+    # 4) préparer session id
     session = f"honest-{int(time.time())}"
-    # commits (une fois pour la session) -- on utilise commit_matrix_rows deterministe via seed_session
+    print(f"[client] session id: {session}")
+
+    # 5) commits (une seule fois par session) — déterministe via seed_session
     seed_session = hashlib.sha256(session.encode()).digest()
     commits, nonces = commit_matrix_rows(bm, seed_session)
     commit_pkg = {"session": session, "commits": [c.hex() for c in commits]}
 
-    # écrire commits de façon atomique (une seule fois)
+    # 6) écrire commits (atomique)
     atomic_write_json(COMMITS_FILE, commit_pkg)
     print("[client] wrote commit_package.json")
 
-    # dériver sigma (chemin)
+    # 7) dériver sigma (chemin)
     sigma = derive_permutation(n, seed_client, seed_pub)
 
-    # boucle t_rounds
+    # 8) boucle des rounds
     for rr in range(1, t_rounds + 1):
-        # attendre challenge
-        if not wait_for_file(CHALL_FILE, timeout=60.0):
-            print("[client] timeout waiting challenge -> abort session")
+        print(f"[client] waiting challenge for round {rr} ...")
+        challenge = wait_for_challenge(session, rr, timeout=120.0)
+        if challenge is None:
+            print(f"[client] timeout waiting challenge for round {rr} -> abort session")
             break
-        with open(CHALL_FILE, "r") as f:
-            challenge = json.load(f)
+
         b = challenge.get("b")
-        # préparer open_pkg selon b
+        print(f"[client] got challenge for round {rr}: b={b}")
+
+        # préparer open package
         open_pkg = {"session": session, "b": b, "opened_rows": [], "context": "row-commit"}
+
         if b == 1:
-            # ouvrir un sous-ensemble du cycle (démo) : on ouvre 200 rows
+            # ouvrir un sous-ensemble du cycle (démo) : 200 lignes
             to_open = sigma[:min(200, n)]
             for idx in to_open:
                 open_pkg["opened_rows"].append({
@@ -101,7 +178,7 @@ def client_session(t_rounds, seed_store, seed_pub_file):
                 })
             open_pkg["cycle_indices"] = sigma[:min(500, n)]
         else:
-            # b == 0 : in maquette, on ouvre toutes les lignes (très lourd)
+            # b == 0 : version maquette -> toutes les lignes (très volumineux)
             for idx in range(n):
                 open_pkg["opened_rows"].append({
                     "index": idx,
@@ -109,31 +186,34 @@ def client_session(t_rounds, seed_store, seed_pub_file):
                     "nonce_hex": nonces[idx].hex()
                 })
 
-        # write atomically
+        # écrire open (atomique)
         atomic_write_json(OPEN_FILE, open_pkg)
 
-        # wait a small bit for server to consume (server removes files)
+        # petit délai pour laisser le serveur consommer
         time.sleep(0.02)
         if rr % 32 == 0 or rr == 1:
             print(f"[client] responded to round {rr}/{t_rounds}")
 
-    # attendre result
-    if wait_for_file(RESULT_FILE, timeout=60.0):
+    # 9) attendre le résultat final
+    print("[client] waiting final result ...")
+    if wait_for_file(RESULT_FILE, timeout=300.0):
         with open(RESULT_FILE, "r") as f:
             res = json.load(f)
         print("[client] session result:", res)
-        try: os.remove(RESULT_FILE)
-        except: pass
+        try:
+            os.remove(RESULT_FILE)
+        except Exception:
+            pass
     else:
         print("[client] no final result file (timeout)")
 
-    # cleanup
+    # 10) cleanup et effacement en mémoire
     try:
         os.remove(COMMITS_FILE)
     except Exception:
         pass
-    # wipe seed var
     seed_client = None
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
