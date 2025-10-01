@@ -100,7 +100,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--seed", default="~/.zkp-ham/seed", help="path to encrypted client seed")
     p.add_argument("--seed-pub", default="seed_pub.txt", help="path to seed_pub (will be created if absent)")
-    p.add_argument("--n", type=int, default=5000, help="number of vertices")
+    p.add_argument("--n", type=int, default=1024, help="number of vertices")
     p.add_argument("--davg", type=float, default=4.0, help="average degree target")
     p.add_argument("--out-graph", default="graph_adjmatrix.bin")
     p.add_argument("--out-manifest", default="enroll_manifest.json")

@@ -9,7 +9,7 @@ Pré-requis:
  - graph_adjmatrix.bin et enroll_manifest.json produits lors de l'enrôlement
 
 Usage:
-    python zkp_client_mock.py --rounds 256
+    python zkp_client_mock.py --rounds n
 """
 
 import argparse, json, os, struct, time, hashlib
@@ -28,7 +28,7 @@ SEED_STORE   = "~/.zkp-ham/seed"
 SEED_PUB_FILE= "seed_pub.txt"
 
 # T_ROUNDS par défaut (surchargé via CLI)
-DEFAULT_T = 256
+DEFAULT_T = 128
 
 
 def atomic_write_json(path, obj):

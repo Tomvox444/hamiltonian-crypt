@@ -4,7 +4,7 @@ from matrix_graph import BitMatrix
 from hashlib import sha256
 import struct, os
 
-N = 5000
+N = 1024
 SEED_PUB_HEX = "7f"*32
 
 def load_matrix(path):

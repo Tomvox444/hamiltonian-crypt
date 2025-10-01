@@ -3,7 +3,7 @@
 zkp_server_mock.py
 Serveur mock pour protocole ZKP-Hamiltonien (session unique, T_ROUNDS consécutifs).
 Usage:
-    python zkp_server_mock.py --rounds 256
+    python zkp_server_mock.py --rounds n
 """
 import argparse, json, os, random, time, hashlib
 
@@ -15,7 +15,7 @@ OPEN_FILE   = "open_package.json"
 RESULT_FILE = "round_result.json"
 
 # Nombre de rounds consécutifs requis pour accepter la session
-T_ROUNDS = 256
+T_ROUNDS = 128
 
 # Lecture JSON robuste (attend un JSON complet)
 def load_json_when_ready(path, max_wait=30.0, sleep=0.05):

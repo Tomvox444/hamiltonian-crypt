@@ -181,7 +181,7 @@ def commit_matrix_rows(bm: BitMatrix, seed_session: bytes, context: bytes = b"ro
 
 def main():
     # Paramètres
-    n = 1000           # passe à 5000 si tu veux
+    n = 1024           # passe à 5000 si tu veux
     d_avg = 4.0        # degré moyen visé (incluant le cycle)
     # Seeds (exemples) — en vrai: os.urandom(32)
     seed_client = sha256(b"client-secret-seed").digest()  # SECRET côté client
